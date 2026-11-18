@@ -113,6 +113,64 @@ class Db private constructor(ctx: Context) : SQLiteOpenHelper(ctx, "expense.db",
         writableDatabase.insertWithOnConflict("skipped", null, v, SQLiteDatabase.CONFLICT_IGNORE)
     }
 
+    /** Re-parses existing transactions using the latest parser rules (e.g. extracts previously unknown payees, corrects direction). */
+    fun reparseTxns(): Int {
+        var count = 0
+        val updates = mutableListOf<Pair<Long, Parsed>>()
+        readableDatabase.rawQuery("SELECT id, body FROM txns", null).use { c ->
+            while (c.moveToNext()) {
+                val id = c.getLong(0)
+                val body = c.getString(1)
+                val p = SmsParser.parse(body) ?: continue
+                updates.add(id to p)
+            }
+        }
+        if (updates.isNotEmpty()) {
+            writableDatabase.beginTransaction()
+            try {
+                for ((id, p) in updates) {
+                    val v = ContentValues().apply {
+                        put("direction", p.direction)
+                        put("amount_paise", p.amountPaise)
+                        put("payee", p.payee)
+                        if (p.upiRef.isNotEmpty()) put("upi_ref", p.upiRef)
+                    }
+                    writableDatabase.update("txns", v, "id = ?", arrayOf(id.toString()))
+                    count++
+                }
+                writableDatabase.setTransactionSuccessful()
+            } finally {
+                writableDatabase.endTransaction()
+            }
+        }
+
+        val promote = mutableListOf<Triple<Long, Long, Pair<String, Pair<String, Parsed>>>>()
+        readableDatabase.rawQuery("SELECT id, sender, time_millis, body FROM skipped", null).use { c ->
+            while (c.moveToNext()) {
+                val id = c.getLong(0)
+                val sender = c.getString(1)
+                val time = c.getLong(2)
+                val body = c.getString(3)
+                val p = SmsParser.parse(body) ?: continue
+                promote.add(Triple(id, time, Pair(sender, Pair(body, p))))
+            }
+        }
+        for (item in promote) {
+            val id = item.first
+            val time = item.second
+            val sender = item.third.first
+            val body = item.third.second.first
+            val p = item.third.second.second
+            val dedupe = if (p.upiRef.isNotEmpty()) "ref:${p.upiRef}:${p.direction}" else "body:${body.hashCode()}:${body.length}"
+            if (addTxn(dedupe, sender, p, time, body)) {
+                writableDatabase.delete("skipped", "id = ?", arrayOf(id.toString()))
+                count++
+            }
+        }
+
+        return count
+    }
+
     // ---- your own names for payees ----
 
     fun merchantMap(): Map<String, String> {
