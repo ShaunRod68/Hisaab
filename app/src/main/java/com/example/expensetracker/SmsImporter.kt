@@ -28,10 +28,20 @@ object SmsImporter {
     }
 
     /** Reads the whole SMS inbox for the bank senders. Call from a background thread. */
-    fun backfill(ctx: Context): Result = scan(ctx, 0L)
+    fun backfill(ctx: Context): Result {
+        val db = Db.get(ctx)
+        val reparsed = db.reparseTxns()
+        val r = scan(ctx, 0L)
+        return r.copy(added = r.added + reparsed)
+    }
 
     /** Only inbox messages newer than the last one seen. Cheap enough to run every time the app opens. */
-    fun syncNew(ctx: Context): Result = scan(ctx, maxOf(0L, Prefs.lastSmsDate(ctx) - 60_000L))
+    fun syncNew(ctx: Context): Result {
+        val db = Db.get(ctx)
+        val reparsed = db.reparseTxns()
+        val r = scan(ctx, maxOf(0L, Prefs.lastSmsDate(ctx) - 60_000L))
+        return r.copy(added = r.added + reparsed)
+    }
 
     private fun scan(ctx: Context, since: Long): Result {
         val db = Db.get(ctx)
@@ -43,9 +53,9 @@ object SmsImporter {
         val cursor = ctx.contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI,
             arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
-            "(${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ?) " +
+            "(${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ?) " +
                 "AND ${Telephony.Sms.DATE} > ?",
-            arrayOf("%KOTAKB%", "%BOBSMS%", "%BOBTXN%", "%HDFC%", "%ICICI%", since.toString()),
+            arrayOf("%KOTAK%", "%BOB%", "%HDFC%", "%ICICI%", since.toString()),
             "${Telephony.Sms.DATE} ASC"
         ) ?: return Result(0, 0, 0, 0)
 
