@@ -4,7 +4,7 @@ import android.content.Context
 import android.provider.Telephony
 import kotlinx.coroutines.flow.MutableStateFlow
 
-/** The receiver bumps this when a new transaction is saved; the screen reloads when it changes. */
+/** Bumped whenever something changes that screens should reload for (new payment, sorted piece, edit). */
 object TxBus {
     val tick = MutableStateFlow(0)
 }
@@ -15,7 +15,7 @@ object SmsImporter {
 
     data class Result(val scanned: Int, val added: Int, val duplicates: Int, val ignored: Int)
 
-    /** Same path for old messages (backfill) and new ones (receiver), so results never differ. */
+    /** Same path for old messages (backfill), catch-up and new ones (receiver), so results never differ. */
     fun ingest(db: Db, sender: String, body: String, time: Long): Outcome {
         val p = SmsParser.parse(body)
         val bodyKey = "body:${body.hashCode()}:${body.length}"
@@ -27,15 +27,25 @@ object SmsImporter {
         return Outcome.IGNORED
     }
 
-    /** Reads the whole SMS inbox for the two bank senders. Call from a background thread. */
-    fun backfill(ctx: Context): Result {
+    /** Reads the whole SMS inbox for the bank senders. Call from a background thread. */
+    fun backfill(ctx: Context): Result = scan(ctx, 0L)
+
+    /** Only inbox messages newer than the last one seen. Cheap enough to run every time the app opens. */
+    fun syncNew(ctx: Context): Result = scan(ctx, maxOf(0L, Prefs.lastSmsDate(ctx) - 60_000L))
+
+    private fun scan(ctx: Context, since: Long): Result {
         val db = Db.get(ctx)
-        var scanned = 0; var added = 0; var dup = 0; var ignored = 0
+        var scanned = 0
+        var added = 0
+        var dup = 0
+        var ignored = 0
+        var newest = 0L
         val cursor = ctx.contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI,
             arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
-            "${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ?",
-            arrayOf("%KOTAKB%", "%BOBSMS%"),
+            "(${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ?) " +
+                "AND ${Telephony.Sms.DATE} > ?",
+            arrayOf("%KOTAKB%", "%BOBSMS%", "%BOBTXN%", since.toString()),
             "${Telephony.Sms.DATE} ASC"
         ) ?: return Result(0, 0, 0, 0)
 
@@ -47,14 +57,17 @@ object SmsImporter {
                 val addr = c.getString(iAddr) ?: continue
                 val body = c.getString(iBody) ?: continue
                 if (!SmsParser.isBankSender(addr)) continue
+                val date = c.getLong(iDate)
+                if (date > newest) newest = date
                 scanned++
-                when (ingest(db, addr, body, c.getLong(iDate))) {
+                when (ingest(db, addr, body, date)) {
                     Outcome.ADDED -> added++
                     Outcome.DUPLICATE -> dup++
                     Outcome.IGNORED -> ignored++
                 }
             }
         }
+        if (newest > Prefs.lastSmsDate(ctx)) Prefs.setLastSmsDate(ctx, newest)
         return Result(scanned, added, dup, ignored)
     }
 }
