@@ -12,7 +12,7 @@ data class Parsed(
 object SmsParser {
 
     // Matches JD-KOTAKB-S, JM-BOBSMS-T, AX-BOBTXN, etc. Prefix and suffix vary, header stays fixed.
-    private val SENDER = Regex("^[A-Z]{2}-(KOTAKB|BOBSMS|BOBTXN|HDFCBK|HDFCBN|ICICIT)(-[A-Z])?$", RegexOption.IGNORE_CASE)
+    private val SENDER = Regex("^[A-Z]{2}-(KOTAKB|BOBSMS|BOBTXN|HDFCBK|HDFCBN|HDFCBANK|HDFC|ICICI|ICICIB|ICICIT)(-[A-Z])?$", RegexOption.IGNORE_CASE)
 
     private val AMOUNT = Regex("""(?:Rs\.?|INR|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)""", RegexOption.IGNORE_CASE)
     private val DEBIT = Regex("""\b(sent|debited|paid|dr\.?\s+from|withdrawn|spent)\b""", RegexOption.IGNORE_CASE)

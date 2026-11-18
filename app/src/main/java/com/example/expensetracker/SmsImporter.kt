@@ -43,9 +43,9 @@ object SmsImporter {
         val cursor = ctx.contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI,
             arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE),
-            "(${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ?) " +
+            "(${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.ADDRESS} LIKE ?) " +
                 "AND ${Telephony.Sms.DATE} > ?",
-            arrayOf("%KOTAKB%", "%BOBSMS%", "%BOBTXN%", since.toString()),
+            arrayOf("%KOTAKB%", "%BOBSMS%", "%BOBTXN%", "%HDFC%", "%ICICI%", since.toString()),
             "${Telephony.Sms.DATE} ASC"
         ) ?: return Result(0, 0, 0, 0)
 
